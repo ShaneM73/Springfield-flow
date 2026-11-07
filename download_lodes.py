@@ -4,12 +4,14 @@ Download LODES 8 origin-destination files for the Springfield commuting project.
 Run (Python 3.8+, no extra packages):
     python download_lodes.py            # every state in PLAN
     python download_lodes.py mo         # only the listed states
+    python download_lodes.py -j 6 il    # 6 files in parallel
 
 Files go into ./Data/<state>/od/ plus each state's crosswalk and version.txt.
 Each OD file and crosswalk is checked against the server's .sha256sum (computed on
 the uncompressed CSV); results are written to Data/<state>/sha256_check.tsv.
 Re-running skips files already downloaded, so an interrupted run can be resumed.
 """
+import concurrent.futures as cf
 import gzip
 import hashlib
 import os
@@ -35,6 +37,7 @@ PLAN = {
 # Add "JT01", "JT03", "JT04", "JT05" here if you want every job type.
 JOB_TYPES = ["JT00", "JT02"]
 
+JOBS = 1                    # parallel downloads (-j N)
 YEARS = range(2002, 2025)  # LODES 8.5 (Oct 2026) covers 2002-2024
 
 
@@ -83,20 +86,26 @@ def listing(state):
 
 def main():
     summary = {}
-    states = sys.argv[1:] or list(PLAN)
+    global JOBS
+    args = sys.argv[1:]
+    if args[:1] == ["-j"]:
+        JOBS, args = int(args[1]), args[2:]
+    states = args or list(PLAN)
     for st in states:
         parts = PLAN[st]
         present = listing(st)
         checks = []
         for part in parts:
-            for jt in JOB_TYPES:
-                for yr in YEARS:
-                    name = f"{st}_od_{part}_{jt}_{yr}.csv.gz"
-                    if name not in present:
-                        continue
-                    url, dest = f"{BASE}/{st}/od/{name}", os.path.join(OUT, st, "od", name)
-                    res = fetch(url, dest)
-                    chk = sha_ok(url, dest) if res in ("ok", "skip") else "-"
+            names = [f"{st}_od_{part}_{jt}_{yr}.csv.gz" for jt in JOB_TYPES for yr in YEARS]
+            names = [n for n in names if n in present]
+
+            def job(name):
+                url, dest = f"{BASE}/{st}/od/{name}", os.path.join(OUT, st, "od", name)
+                res = fetch(url, dest)
+                return name, res, (sha_ok(url, dest) if res in ("ok", "skip") else "-")
+
+            with cf.ThreadPoolExecutor(JOBS) as ex:
+                for name, res, chk in ex.map(job, names):
                     checks.append((name, res, chk))
                     summary[res] = summary.get(res, 0) + 1
                     print(f"{res:7s} {chk:8s} {name}", flush=True)

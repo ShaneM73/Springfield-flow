@@ -1,0 +1,71 @@
+[
+ {
+  "key": "springfield",
+  "name": "Springfield, MO",
+  "cbsa": "44180",
+  "states": [
+   "MO"
+  ],
+  "counties": 5,
+  "tracts": 117,
+  "jobs2024": 200415.0
+ },
+ {
+  "key": "columbia",
+  "name": "Columbia, MO",
+  "cbsa": "17860",
+  "states": [
+   "MO"
+  ],
+  "counties": 3,
+  "tracts": 48,
+  "jobs2024": 78710.0
+ },
+ {
+  "key": "jeffcity",
+  "name": "Jefferson City, MO",
+  "cbsa": "27620",
+  "states": [
+   "MO"
+  ],
+  "counties": 4,
+  "tracts": 37,
+  "jobs2024": 52761.0
+ },
+ {
+  "key": "joplin",
+  "name": "Joplin, MO-KS",
+  "cbsa": "27900",
+  "states": [
+   "MO",
+   "KS"
+  ],
+  "counties": 3,
+  "tracts": 48,
+  "jobs2024": 75912.0
+ },
+ {
+  "key": "stjoseph",
+  "name": "St. Joseph, MO-KS",
+  "cbsa": "41140",
+  "states": [
+   "MO",
+   "KS"
+  ],
+  "counties": 4,
+  "tracts": 37,
+  "jobs2024": 48131.0
+ },
+ {
+  "key": "capegirardeau",
+  "name": "Cape Girardeau, MO-IL",
+  "cbsa": "16020",
+  "states": [
+   "MO",
+   "IL"
+  ],
+  "counties": 3,
+  "tracts": 26,
+  "jobs2024": 38049.0
+ }
+]

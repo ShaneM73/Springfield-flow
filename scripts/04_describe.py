@@ -24,7 +24,7 @@ import statsmodels.api as sm
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from config import OUT, METROS, RAW, YEARS
+from config import OUT, RAW, YEARS, HOME_STATE, STATE_FIPS, metro_def
 
 LONG_MI = 100
 DENS, MINJ, CENTRE_MIN = 5.0, 1000, 5000
@@ -34,6 +34,44 @@ plt.rcParams.update({"font.size": 9, "axes.edgecolor": INK2, "axes.labelcolor": 
                      "ytick.color": INK2, "axes.spines.top": False, "axes.spines.right": False,
                      "axes.grid": True, "grid.color": GRID, "grid.linewidth": 0.6, "lines.linewidth": 2,
                      "figure.facecolor": "#fcfcfb", "axes.facecolor": "#fcfcfb", "savefig.dpi": 200})
+
+
+def load_tracts(states, ids):
+    """2020 TIGER tracts for the metro's states, restricted to ids."""
+    g = pd.concat([gpd.read_file(RAW / "tiger" / f"tl_2020_{STATE_FIPS[s]}_tract.shp") for s in states], ignore_index=True)
+    return g[g.GEOID.isin(ids)]
+
+
+def decay_beta(F, d):
+    """Distance-decay exponent of a doubly-constrained gravity model T_ij = A_i B_j d_ij^-beta (intrazonal excluded),
+    fitted by Poisson maximum likelihood; identical to PPML with origin and destination fixed effects."""
+    n = len(F); off = ~np.eye(n, dtype=bool)
+    F = np.where(off, F, 0.0); O, Dd = F.sum(1), F.sum(0)
+    ld = np.log(np.where(off, d, 1.0))
+
+    def fit(beta):
+        K = np.where(off, np.exp(-beta * ld), 0.0)
+        a = np.ones(n); b = np.ones(n)
+        for _ in range(500):
+            a_new = np.divide(O, K @ b, out=np.zeros(n), where=(K @ b) > 0)
+            b_new = np.divide(Dd, K.T @ a_new, out=np.zeros(n), where=(K.T @ a_new) > 0)
+            if np.allclose(a_new, a, rtol=1e-9) and np.allclose(b_new, b, rtol=1e-9):
+                a, b = a_new, b_new; break
+            a, b = a_new, b_new
+        T = a[:, None] * K * b[None, :]
+        return T, np.sum(F[T > 0] * np.log(T[T > 0])) - T.sum()
+
+    lo, hi = 0.0, 4.0; g = (np.sqrt(5) - 1) / 2
+    x1, x2 = hi - g * (hi - lo), lo + g * (hi - lo); f1, f2 = fit(x1)[1], fit(x2)[1]
+    while hi - lo > 1e-5:
+        if f1 > f2: hi, x2, f2 = x2, x1, f1; x1 = hi - g * (hi - lo); f1 = fit(x1)[1]
+        else: lo, x1, f1 = x1, x2, f2; x2 = lo + g * (hi - lo); f2 = fit(x2)[1]
+    beta = (lo + hi) / 2
+    T = fit(beta)[0]
+    # standard error from the profile likelihood curvature (Fisher information along beta)
+    h = 1e-3; l0, lp, lm = fit(beta)[1], fit(beta + h)[1], fit(beta - h)[1]
+    se = 1 / np.sqrt(max(-(lp - 2 * l0 + lm) / h ** 2, 1e-12))
+    return beta, se
 
 
 def wmedian(x, w):
@@ -75,7 +113,7 @@ def line_chart(df, cols, title, ylabel, fname, figdir, labels=None, pct=False, j
 
 
 def main(metro="springfield"):
-    M = METROS[metro]
+    M = metro_def(metro)
     od = OUT / metro
     tdir, fdir = od / "tables", od / "figures"
     tdir.mkdir(exist_ok=True); fdir.mkdir(exist_ok=True)
@@ -84,29 +122,33 @@ def main(metro="springfield"):
     P = con.execute(f"SELECT * FROM '{od/'panel.parquet'}'").df()
     P["hc"], P["wc"] = P.h_node.str[:5], P.w_node.str[:5]
     P["h_in"], P["w_in"] = P.hc.isin(C), P.wc.isin(C)
+    P["h_mo"], P["w_mo"] = P.h_node.str[:2] == HOME_STATE, P.w_node.str[:2] == HOME_STATE
     B = con.execute(f"""SELECT year, jt, part, substr(h_geocode,1,5) hc, substr(w_geocode,1,5) wc,
                         S000, SA01,SA02,SA03,SE01,SE02,SE03,SI01,SI02,SI03, miles
-                        FROM '{od/'blockflows.parquet'}' WHERE part='main'""").df()
+                        FROM '{od/'blockflows.parquet'}'
+                        WHERE substr(h_geocode,1,5) IN ({",".join(f"'{c}'" for c in C)})
+                           OR substr(w_geocode,1,5) IN ({",".join(f"'{c}'" for c in C)})""").df()
     B["h_in"], B["w_in"] = B.hc.isin(C), B.wc.isin(C)
+    B["h_mo"] = B.hc.str[:2] == HOME_STATE
 
     # ---------- 1. county & metro volumes, ratios, self-containment ----------
-    m = P[P.part == "main"]
+    # Outside ends are classed by state: Missouri ("_mo") vs other states ("_aux" inflow / "_oos" outflow).
+    # For Missouri-only metros this equals the LODES file split (main / aux / other states' aux).
+    m = P
     rows = []
     for (jt, yr), g in m.groupby(["jt", "year"]):
-        a = P[(P.part == "aux") & (P.jt == jt) & (P.year == yr)]
-        x = P[(P.part == "oos") & (P.jt == jt) & (P.year == yr)]      # metro residents working in other states
+        S = lambda mask: g.loc[mask, "S000"].sum()
         r = dict(jt=jt, year=yr,
-                 msa_jobs_mo=g.loc[g.w_in, "S000"].sum(), msa_jobs_aux=a.loc[a.w_in, "S000"].sum(),
-                 live_work_msa=g.loc[g.w_in & g.h_in, "S000"].sum(),
-                 inflow_mo=g.loc[g.w_in & ~g.h_in, "S000"].sum(), inflow_aux=a.loc[a.w_in, "S000"].sum(),
-                 outflow_mo=g.loc[g.h_in & ~g.w_in, "S000"].sum(), outflow_oos=x.S000.sum(),
-                 res_workers_mo=g.loc[g.h_in, "S000"].sum())
-        r["res_workers_all"] = r["res_workers_mo"] + r["outflow_oos"]
+                 msa_jobs_mo=S(g.w_in & g.h_mo), msa_jobs_aux=S(g.w_in & ~g.h_mo),
+                 live_work_msa=S(g.w_in & g.h_in),
+                 inflow_mo=S(g.w_in & ~g.h_in & g.h_mo), inflow_aux=S(g.w_in & ~g.h_in & ~g.h_mo),
+                 outflow_mo=S(g.h_in & ~g.w_in & g.w_mo), outflow_oos=S(g.h_in & ~g.w_in & ~g.w_mo),
+                 res_workers_mo=S(g.h_in & g.w_mo), res_workers_all=S(g.h_in))
         r["msa_jobs_total"] = r["msa_jobs_mo"] + r["msa_jobs_aux"]
         r["self_contain_res"] = r["live_work_msa"] / r["res_workers_all"]  # residents (any state of work) working in MSA
         r["self_suff_jobs"] = r["live_work_msa"] / r["msa_jobs_total"]     # MSA jobs filled by MSA residents
         for f, n in C.items():
-            rw = g.loc[g.hc == f, "S000"].sum() + x.loc[x.hc == f, "S000"].sum(); jb = g.loc[g.wc == f, "S000"].sum() + a.loc[a.wc == f, "S000"].sum()
+            rw = S(g.hc == f); jb = S(g.wc == f)
             r[f"{n}_res_workers"] = rw; r[f"{n}_jobs"] = jb; r[f"{n}_jobs_per_rw"] = jb / rw
             r[f"{n}_own_county"] = g.loc[(g.hc == f) & (g.wc == f), "S000"].sum() / rw
             r[f"{n}_in_msa"] = g.loc[(g.hc == f) & g.w_in, "S000"].sum() / rw
@@ -132,7 +174,7 @@ def main(metro="springfield"):
     drows = []
     for (jt, yr), g in B.groupby(["jt", "year"]):
         win = g[g.h_in & g.w_in]
-        jobs = g[g.w_in & g.miles.notna()]
+        jobs = g[g.w_in & g.miles.notna() & g.h_mo]
         for col, lab in segs.items():
             drows.append(dict(jt=jt, year=yr, scope="within_msa", group=lab, workers=win[col].sum(),
                               median_mi=wmedian(win.miles, win[col]),
@@ -156,18 +198,18 @@ def main(metro="springfield"):
     D.to_csv(tdir / "commute_distance_year.csv", index=False)
 
     # long-distance flows into MSA jobs: share and largest origin/destination pairs
-    L = (B[(B.jt == "JT02") & B.w_in].assign(long=lambda d: d.miles > LONG_MI)
+    L = (B[(B.jt == "JT02") & B.w_in & B.h_mo].assign(long=lambda d: d.miles > LONG_MI)
          .groupby("year").apply(lambda g: pd.Series({"long_workers": g.loc[g.long, "S000"].sum(),
                                                      "share": g.loc[g.long, "S000"].sum() / g.S000.sum()}),
                                 include_groups=False))
     L.to_csv(tdir / "long_distance_share_JT02.csv")
 
     # ---------- 3. commutershed of core-county jobs ----------
-    ring = lambda hc: np.where(hc == core, "core", np.where(hc.isin(C), "suburban MSA", "outer MO"))
+    ring = lambda hc: np.where(hc == core, "core", np.where(hc.isin(C), "suburban MSA",
+                               np.where(hc.str[:2] == HOME_STATE, "outer MO", "out of state")))
     cs = []
     for (jt, yr), g in P[P.wc == core].groupby(["jt", "year"]):
-        s = g[g.part == "main"].groupby(ring(g[g.part == "main"].hc)).S000.sum()
-        s["out of state"] = g.loc[g.part == "aux", "S000"].sum()
+        s = g.groupby(ring(g.hc)).S000.sum().reindex(["core", "suburban MSA", "outer MO", "out of state"]).fillna(0)
         s = s / s.sum()
         cs.append(dict(jt=jt, year=yr, **s.to_dict()))
     CS = pd.DataFrame(cs)
@@ -177,7 +219,7 @@ def main(metro="springfield"):
     # distance-band shares (MSA jobs, MO residents) per year
     bins = [0, 2, 5, 10, 20, 35, 50, 100, 1e4]
     bl = ["0-2", "2-5", "5-10", "10-20", "20-35", "35-50", "50-100", "100+"]
-    jb = B[B.w_in & B.miles.notna()].copy()
+    jb = B[B.w_in & B.miles.notna() & B.h_mo].copy()
     jb["band"] = pd.cut(jb.miles, bins, labels=bl, right=False)
     DB = jb.groupby(["jt", "year", "band"], observed=False).S000.sum().unstack()
     DB = DB.div(DB.sum(1), axis=0).reset_index()
@@ -190,28 +232,22 @@ def main(metro="springfield"):
     lon, lat = np.radians(tn.loc[tracts, "lon"].values), np.radians(tn.loc[tracts, "lat"].values)
     dd = 3958.76 * 2 * np.arcsin(np.sqrt(np.sin((lat[:, None] - lat) / 2) ** 2 +
                                          np.cos(lat[:, None]) * np.cos(lat) * np.sin((lon[:, None] - lon) / 2) ** 2))
-    grid = pd.DataFrame({"h_node": np.repeat(tracts, len(tracts)), "w_node": np.tile(tracts, len(tracts)),
-                         "d": dd.ravel()})
-    grid = grid[grid.h_node != grid.w_node]
-    Hd = pd.get_dummies(grid.h_node, drop_first=True, dtype=float)
-    Wd = pd.get_dummies(grid.w_node, drop_first=True, dtype=float)
-    X = pd.concat([np.log(grid.d).rename("logd").to_frame(), Hd.add_prefix("h_"), Wd.add_prefix("w_")], axis=1)
-    X = sm.add_constant(X).values
+    tix = {t: i for i, t in enumerate(tracts)}
     dec = []
     for jt in ["JT02", "JT00"]:
         for yr in YEARS:
             if jt == "JT00" and yr < 2010:
                 continue
-            f = m[(m.jt == jt) & (m.year == yr) & m.h_in & m.w_in][["h_node", "w_node", "S000"]]
-            y = grid.merge(f, how="left", on=["h_node", "w_node"]).S000.fillna(0).values
-            res = sm.GLM(y, X, family=sm.families.Poisson()).fit()
-            dec.append(dict(jt=jt, year=yr, beta_logd=-res.params[1], se=res.bse[1]))
+            f = m[(m.jt == jt) & (m.year == yr) & m.h_in & m.w_in].groupby(["h_node", "w_node"]).S000.sum()
+            F = np.zeros((len(tracts), len(tracts)))
+            F[[tix[h] for h, _ in f.index], [tix[w] for _, w in f.index]] = f.values
+            b, se = decay_beta(F, dd)
+            dec.append(dict(jt=jt, year=yr, beta_logd=b, se=se))
     DEC = pd.DataFrame(dec)
     DEC.to_csv(tdir / "distance_decay_poisson.csv", index=False)
 
     # ---------- 4. job concentration & centres ----------
-    shp = gpd.read_file(RAW / "tiger" / "tl_2020_29_tract.shp")
-    shp = shp[shp.GEOID.isin(tracts)].to_crs(5070)
+    shp = load_tracts(M["states"], tracts).to_crs(5070)
     shp["acres"] = shp.ALAND / 4046.856
     acres = shp.set_index("GEOID").acres
     nb = gpd.sjoin(shp[["GEOID", "geometry"]], shp[["GEOID", "geometry"]], predicate="touches")
@@ -254,7 +290,8 @@ def main(metro="springfield"):
                 for cmin in (2500, 5000, 10000):
                     sens.append(dict(year=yr, dens=dthr, centre_min=cmin, n_centres=len(centres(j, dthr, MINJ, cmin))))
     CONC = pd.DataFrame(conc); CONC.to_csv(tdir / "job_concentration.csv", index=False)
-    CENT = pd.DataFrame(cent_rows); CENT.to_csv(tdir / "job_centres.csv", index=False)
+    CENT = pd.DataFrame(cent_rows, columns=["jt", "year", "rank", "n_tracts", "jobs", "tracts"])   # may be empty in small metros
+    CENT.to_csv(tdir / "job_centres.csv", index=False)
     SENS = pd.DataFrame(sens).pivot_table(index="year", columns=["dens", "centre_min"], values="n_centres")
     SENS.to_csv(tdir / "job_centres_sensitivity_JT02.csv")
 
@@ -273,7 +310,9 @@ def main(metro="springfield"):
     jumps.sort_values(["jt", "year", "chg"]).to_csv(tdir / "tract_job_jumps.csv", index=False)
 
     # ---------- figures ----------
-    n = list(C.values())
+    # charts show the core + the 6 largest other counties (fixed palette order; the tables keep all counties)
+    big = sorted([c for c in C if c != core], key=lambda c: -v2[f"{C[c]}_jobs"].get(2024, 0))[:6]
+    n = [C[core]] + [C[c] for c in big]
     line_chart(v2[[f"{c}_jobs" for c in n]] / 1e3, [f"{c}_jobs" for c in n], "Jobs by county (thousands)",
                "jobs (000)", "01_jobs_county", fdir, {f"{c}_jobs": c for c in n}, jt00=v0[[f"{c}_jobs" for c in n]] / 1e3)
     line_chart(v2[[f"{c}_res_workers" for c in n]] / 1e3, [f"{c}_res_workers" for c in n],

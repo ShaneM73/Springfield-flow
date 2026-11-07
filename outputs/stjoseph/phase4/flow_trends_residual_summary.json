@@ -1,0 +1,11 @@
+{
+ "pairs": 645,
+ "sig_residual": 109,
+ "intens_residual": 53,
+ "decl_residual": 56,
+ "sig_raw": 285,
+ "intens_raw": 116,
+ "decl_raw": 169,
+ "perm_expected_sig_mean": 0.0,
+ "perm_expected_sig_max": 0
+}

@@ -5,9 +5,9 @@ Usage: python scripts/03_validate_2022.py      -> outputs/springfield/validation
 import duckdb
 import pandas as pd
 
-from config import OUT, METROS
+from config import OUT, metro_def
 
-M = METROS["springfield"]
+M = metro_def("springfield")
 od = OUT / "springfield"
 cty = ",".join(f"'{c}'" for c in M["counties"])
 con = duckdb.connect()

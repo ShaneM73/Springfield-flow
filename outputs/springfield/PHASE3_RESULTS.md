@@ -23,7 +23,7 @@ Every state's LODES aux file was screened for Missouri residents: 2,252 files, a
 - **Count:** 5 communities in 2002–10, 4 in 2011–21, then 5 again in 2022–24, when the Strafford/eastern Greene community splits off again.
 - **Persistent communities:** Springfield S, Springfield NE, Nixa (Christian Co.) and Bolivar (Polk Co.).
 - **Modularity falls steadily: 0.17 → 0.12.** Commuting sub-regions are becoming less self-contained, so the metro is integrating into one commuting field.
-- **Year-to-year agreement (ARI)** is usually 0.8–0.97 but **dips to 0.65–0.69 in 2009–2011**. That is the recession window, and also the documented 2009 LODES residence-model change; the two can't be separated.
+- **Year-to-year agreement (ARI)** ranges 0.65–0.97. The lowest values are 2009–2011 (0.65–0.69), with other dips in 2007 (0.76), 2013 (0.73), 2015 (0.78) and 2022 (0.70). The 2009–11 window coincides with the recession; LEHD's 2025 methodology report (CES-25-52) dates residence-input changes to 2011 and 2012, so the two can't be separated. See phase4/ for gravity-null modularity and break-year scans.
 - **Sensitivity:**
   - γ = 0.7 gives 2–3 communities that never change.
   - γ = 1.7 gives 21–30 neighbourhood clusters, rising over time.
@@ -50,7 +50,7 @@ Flagged pairs are those over 100 mi or touching a reassignment tract.
 | In-commuters from other states | −9.3 % | −16.0 % | −21.3 % |
 | Self-containment (pts) | −2.1 | −0.9 | −1.9 |
 
-- **2009 level shift** (2002–19, HAC): jobs −10.5k (p < 0.001), self-containment −3.2 points (p = 0.001), distance-decay β −0.045 (p = 0.002). The result holds with 2006 excluded. It is confounded with the residence-model change.
+- **2009 level shift** (2002–19, HAC): jobs −10.5k (p < 0.001), self-containment −3.2 points (p = 0.001), distance-decay β −0.045 (p = 0.002). The result holds with 2006 excluded. This is the recession; a placebo scan over all candidate break years (phase4/break_scan.csv) and the 2011/2012 residence-input changes documented by LEHD are reported in Phase 4.
 - **Flow churn:** the volume share of pairs ≥ 10 that persist to the next year is usually about 0.92. It is lowest in 2009 (0.885) and 2011 (0.889); 2020 is 0.909.
 
 ## Answers so far, for Springfield (RQ1–3)

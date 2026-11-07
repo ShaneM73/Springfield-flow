@@ -1,12 +1,12 @@
 """Fetch Missouri residents who work in other states (other states' aux files) plus the block
 coordinates needed for out-of-state ends.
 
-Disk on /home is nearly full, so raw out-of-state aux files are NOT stored. Each file is streamed into
-memory, its SHA-256 (on the uncompressed CSV) is checked against the server's .sha256sum, and only
-rows with a Missouri home block (h_geocode starting '29') are kept.
+Raw out-of-state aux files are NOT stored (only the rows we need). Each file is streamed into memory,
+its SHA-256 (on the uncompressed CSV) is checked against the server's .sha256sum, and only rows with a
+home block in Missouri, Kansas or Illinois (HOME_STATES; the states our metros touch) are kept.
 
 Outputs
-  parquet/oos/mo_res_outofstate.parquet  : year, jt, w_state + all OD columns, MO-resident rows only
+  parquet/oos/res_outofstate.parquet     : year, jt, w_state + all OD columns, rows with home in HOME_STATES
   parquet/oos/oos_blocks.parquet         : block, state, county, county name, cbsa, cbsa name, lat, lon,
                                            for every out-of-state block that appears in an MO-related flow
                                            (workplaces of MO residents; homes of MO aux workers)
@@ -28,6 +28,7 @@ import pandas as pd
 from config import PARQUET, OUT, YEARS
 
 BASE = "https://lehd.ces.census.gov/data/lodes/LODES8"
+HOME_STATES = ("29", "20", "17")    # MO, KS, IL
 DST = PARQUET / "oos"
 UA = {"User-Agent": "springfield-flow-research/1.0"}
 
@@ -58,7 +59,7 @@ def one(st, jt, yr, present):
     want = get(f"{BASE}/{st}/od/{name.replace('.csv.gz', '.csv.sha256sum')}")
     sha = "nosum" if want is None else ("match" if hashlib.sha256(raw).hexdigest() == want.decode().split()[0] else "MISMATCH")
     df = pd.read_csv(io.BytesIO(raw), dtype={"w_geocode": str, "h_geocode": str, "createdate": str})
-    keep = df[df.h_geocode.str.startswith("29")].copy()
+    keep = df[df.h_geocode.str[:2].isin(HOME_STATES)].copy()
     keep.insert(0, "w_state", st); keep.insert(0, "jt", jt); keep.insert(0, "year", yr)
     return dict(file=name, status="ok", bytes=len(gz), rows=len(df), rows_kept=len(keep),
                 S000_kept=int(keep.S000.sum()), sha256=sha, createdate=";".join(sorted(df.createdate.unique())),
@@ -82,7 +83,7 @@ def main():
             if i % 100 == 0:
                 print(i, r["file"], r["status"], r.get("rows_kept"), flush=True)
     data = pd.concat([r.pop("data") for r in res if "data" in r], ignore_index=True)
-    data.to_parquet(DST / "mo_res_outofstate.parquet", compression="zstd", index=False)
+    data.to_parquet(DST / "res_outofstate.parquet", compression="zstd", index=False)
     man = pd.DataFrame(res).sort_values("file")
     man.to_csv(OUT / "manifest_outofstate.csv", index=False)
     print(man.status.value_counts().to_dict(), man.sha256.value_counts().to_dict(),
@@ -91,8 +92,9 @@ def main():
     # block coordinates for out-of-state ends
     con = duckdb.connect()
     need = set(data.w_geocode)
-    mo_aux = str(PARQUET / "mo" / "od" / "mo_od_aux_JT0[02]_*.parquet")
-    need |= {r[0] for r in con.execute(f"SELECT DISTINCT h_geocode FROM read_parquet('{mo_aux}')").fetchall()}
+    for s in ("mo", "ks", "il"):          # homes of the aux workers of the states our metros touch
+        aux = str(PARQUET / s / "od" / f"{s}_od_aux_JT0[02]_*.parquet")
+        need |= {r[0] for r in con.execute(f"SELECT DISTINCT h_geocode FROM read_parquet('{aux}')").fetchall()}
     need_st = {b[:2] for b in need}
     fips2st = {}
     blocks, cents = [], []

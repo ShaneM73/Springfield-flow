@@ -1,21 +1,25 @@
-"""Build the web app's basemaps: terrain heightmaps and projected outlines for two scales.
+"""Build the web app's basemaps: terrain heightmaps and projected outlines.
 
-  metro  : 240 x 220 km around Springfield, 0.25 km/px. Holds the MSA tracts and surrounding counties.
-  nation : conterminous US, 4 km/px. Holds state outlines, for out-of-state flows.
+  docs/data/<metro>/ : extent fitted to the metro (Springfield: 240 x 220 km, 0.25 km/px); tracts, counties,
+                       state lines and town labels (TIGER incorporated places).
+  docs/data/nation/  : conterminous US, 4 km/px, state outlines, for out-of-state flows.
 
 Terrain comes from AWS Terrain Tiles (terrarium encoding; SRTM/GMTED/NED). It is stored as 16-bit
 elevation (+500 m offset) in R/G with a land mask in B, the same encoding as the
 European_spatiotemporal_geography atlas.
 Coordinates are spherical Lambert azimuthal equal-area, in km, one centre per scale.
 
-Usage: python tools/build_basemap.py --raw <cache dir>
+Usage: python tools/build_basemap.py --raw <cache dir> [nation] [metro ...]
 """
 import argparse
 import io
 import json
 import math
 import os
+import sys
 import urllib.request
+
+import pandas as pd
 
 import geopandas as gpd
 import numpy as np
@@ -26,11 +30,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "docs", "data")
 R = 6371.0
 TILES = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
-SCALES = {
-    "metro": dict(lon0=-93.10, lat0=37.30, extent=[-120, -110, 120, 110], kmpx=0.25, z=10),
-    "nation": dict(lon0=-96.0, lat0=38.0, extent=[-2450, -1650, 2350, 1600], kmpx=4.0, z=6),
-}
-MSA = {"29077", "29043", "29225", "29167", "29059"}
+SCALES = {"nation": dict(lon0=-96.0, lat0=38.0, extent=[-2450, -1650, 2350, 1600], kmpx=4.0, z=6)}
 
 
 def laea(lon, lat, lon0, lat0):
@@ -102,34 +102,93 @@ def rings(geom, sc, tol):
     return out
 
 
-def main():
-    ap = argparse.ArgumentParser(); ap.add_argument("--raw", required=True); a = ap.parse_args()
-    os.makedirs(OUT, exist_ok=True)
-    tr = gpd.read_file(os.path.join(ROOT, "Data", "tiger", "tl_2020_29_tract.shp")).to_crs(4326)
-    tr = tr[(tr.STATEFP + tr.COUNTYFP).isin(MSA)]
-    cty = gpd.read_file(os.path.join(a.raw, "cb_2020_us_county_20m")).to_crs(4326)
-    st = gpd.read_file(os.path.join(a.raw, "cb_2020_us_state_20m")).to_crs(4326)
-    st = st[~st.STUSPS.isin(["AK", "HI", "PR"])]
-    meta, geo = {"R": R, "elevOffset": 500}, {}
+def metro_scale(metro, tr_ll):
+    """Extent fitted to the metro's tracts: square-ish, 35 % margin, >= 100 km half-width; ~1000 px wide."""
+    if metro == "springfield":                     # keep the original framing
+        return dict(lon0=-93.10, lat0=37.30, extent=[-120, -110, 120, 110], kmpx=0.25, z=10)
+    x0, y0, x1, y1 = tr_ll.total_bounds
+    lon0, lat0 = round((x0 + x1) / 2, 3), round((y0 + y1) / 2, 3)
+    px, py = [], []
+    for g in tr_ll.geometry:
+        polys = [g] if g.geom_type == "Polygon" else list(g.geoms)
+        for p in polys:
+            x, y = laea(*np.asarray(p.exterior.coords).T, lon0, lat0); px += list(x); py += list(y)
+    hx = max(100, 1.35 * max(abs(min(px)), abs(max(px))) + 20)
+    hy = max(90, 1.35 * max(abs(min(py)), abs(max(py))) + 20)
+    kmpx = round(2 * max(hx, hy) / 1000, 3)
+    z = int(np.clip(round(math.log2(40075 * math.cos(math.radians(lat0)) / (256 * kmpx))), 6, 11))
+    return dict(lon0=lon0, lat0=lat0, extent=[-round(hx), -round(hy), round(hx), round(hy)], kmpx=kmpx, z=z)
 
-    m = SCALES["metro"]
-    img, size, lo, hi = terrain(m, a.raw)
-    img.save(os.path.join(OUT, "terrain_metro.png"), optimize=True)
-    meta["metro"] = {**m, "size": size, "elevMin": lo, "elevMax": hi}
-    bbox = laea_inv(np.array([m["extent"][0], m["extent"][2]]), np.array([m["extent"][1], m["extent"][3]]), m["lon0"], m["lat0"])
-    cm = cty.cx[bbox[0].min() - .3:bbox[0].max() + .3, bbox[1].min() - .3:bbox[1].max() + .3]
-    geo["metro"] = {
+
+def build_metro(metro, raw):
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    from config import metro_def, STATE_FIPS
+    M = metro_def(metro); C = set(M["counties"])
+    tiger = os.path.join(ROOT, "Data", "tiger")
+    tr = pd.concat([gpd.read_file(os.path.join(tiger, f"tl_2020_{STATE_FIPS[s]}_tract.shp")) for s in M["states"]], ignore_index=True)
+    tr = tr[(tr.STATEFP + tr.COUNTYFP).isin(C)].to_crs(4326)
+    m = metro_scale(metro, tr)
+    out = os.path.join(OUT, metro); os.makedirs(out, exist_ok=True)
+    img, size, lo, hi = terrain(m, raw)
+    img.save(os.path.join(out, "terrain.png"), optimize=True)
+    cty = gpd.read_file(os.path.join(raw, "cb_2020_us_county_20m")).to_crs(4326)
+    bx, by = laea_inv(np.array([m["extent"][0], m["extent"][2]]), np.array([m["extent"][1], m["extent"][3]]), m["lon0"], m["lat0"])
+    cm = cty.cx[bx.min() - .3:bx.max() + .3, by.min() - .3:by.max() + .3]
+    st_all = gpd.read_file(os.path.join(raw, "cb_2020_us_state_20m")).to_crs(4326)
+    sm_ = st_all.cx[bx.min() - .3:bx.max() + .3, by.min() - .3:by.max() + .3]
+    # town labels: incorporated places inside the extent, the 18 with most 2024 private jobs (LODES main files)
+    import duckdb
+    from config import PARQUET
+    pls = []
+    for f in sorted(os.listdir(tiger)):
+        if f.endswith("_place.shp"):
+            pls.append(gpd.read_file(os.path.join(tiger, f)))
+    pl = pd.concat(pls, ignore_index=True)
+    pl = pl[pl.CLASSFP.str.startswith("C")].copy()
+    pl["lon"], pl["lat"] = pl.INTPTLON.astype(float), pl.INTPTLAT.astype(float)
+    x, y = laea(pl.lon.values, pl.lat.values, m["lon0"], m["lat0"])
+    ex = m["extent"]; pl["x"], pl["y"] = x, y
+    pl = pl[(x > ex[0] * 0.95) & (x < ex[2] * 0.95) & (y > ex[1] * 0.95) & (y < ex[3] * 0.95)]
+    q = " UNION ALL ".join(f"""SELECT x.stplc, sum(o.S000) jobs FROM '{PARQUET / s / 'od' / f'{s}_od_main_JT02_2024.parquet'}' o
+                               JOIN '{PARQUET / s / f'{s}_xwalk.parquet'}' x ON o.w_geocode = x.tabblk2020 GROUP BY 1"""
+                           for s in STATE_FIPS if (PARQUET / s / 'od' / f'{s}_od_main_JT02_2024.parquet').exists())
+    jobs = duckdb.sql(q).df().groupby("stplc").jobs.sum()
+    pl["jobs"] = pl.GEOID.map(jobs).fillna(0)
+    pl = pl.sort_values("jobs", ascending=False).drop_duplicates("NAME").head(18)
+    geo = {
         "tracts": [{"id": r.GEOID, "rings": rings(r.geometry, m, 0.0003)} for r in tr.itertuples()],
-        "counties": [{"id": r.GEOID, "name": r.NAME, "msa": r.GEOID in MSA, "rings": rings(r.geometry, m, 0.001)} for r in cm.itertuples()],
+        "counties": [{"id": r.GEOID, "name": r.NAME, "msa": r.GEOID in C, "rings": rings(r.geometry, m, 0.001)} for r in cm.itertuples()],
+        "states": [{"id": r.STATEFP, "abbr": r.STUSPS, "rings": rings(r.geometry, m, 0.002)} for r in sm_.itertuples()],
+        "places": [{"name": r.NAME, "xy": [round(r.x, 2), round(r.y, 2)]} for r in pl.itertuples()],
     }
+    meta = {"R": R, "elevOffset": 500, "metro": {**m, "size": size, "elevMin": lo, "elevMax": hi}}
+    json.dump({"meta": meta, "geo": geo}, open(os.path.join(out, "basemap.json"), "w"), separators=(",", ":"))
+    print(metro, json.dumps(meta["metro"]))
+
+
+def build_nation(raw):
+    st = gpd.read_file(os.path.join(raw, "cb_2020_us_state_20m")).to_crs(4326)
+    st = st[~st.STUSPS.isin(["AK", "HI", "PR"])]
     n = SCALES["nation"]
+    out = os.path.join(OUT, "nation"); os.makedirs(out, exist_ok=True)
     land = [ring for g in st.geometry for ring in rings(g, n, 0.02)]
-    img, size, lo, hi = terrain(n, a.raw, land)
-    img.save(os.path.join(OUT, "terrain_nation.png"), optimize=True)
-    meta["nation"] = {**n, "size": size, "elevMin": lo, "elevMax": hi}
-    geo["nation"] = {"states": [{"id": r.STATEFP, "abbr": r.STUSPS, "name": r.NAME, "rings": rings(r.geometry, n, 0.02)} for r in st.itertuples()]}
-    json.dump({"meta": meta, "geo": geo}, open(os.path.join(OUT, "basemap.json"), "w"), separators=(",", ":"))
-    print(json.dumps(meta, indent=1))
+    img, size, lo, hi = terrain(n, raw, land)
+    img.save(os.path.join(out, "terrain.png"), optimize=True)
+    meta = {"R": R, "elevOffset": 500, "nation": {**n, "size": size, "elevMin": max(lo, -100), "elevMax": hi}}
+    geo = {"states": [{"id": r.STATEFP, "abbr": r.STUSPS, "name": r.NAME, "rings": rings(r.geometry, n, 0.02)} for r in st.itertuples()]}
+    json.dump({"meta": meta, "geo": geo}, open(os.path.join(out, "basemap.json"), "w"), separators=(",", ":"))
+    print("nation", json.dumps(meta["nation"]))
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--raw", required=True, help="cache directory for tiles and cartographic boundary files")
+    ap.add_argument("metros", nargs="*", help="metro keys (default: all); 'nation' builds the shared US basemap")
+    a = ap.parse_args()
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    from config import METROS
+    for k in (a.metros or ["nation", *METROS]):
+        build_nation(a.raw) if k == "nation" else build_metro(k, a.raw)
 
 
 if __name__ == "__main__":

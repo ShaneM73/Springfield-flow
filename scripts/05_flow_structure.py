@@ -9,8 +9,10 @@ Methods are chosen from the literature (see outputs/<metro>/phase3/METHODS.md); 
                  3 years t-1..t+1 (Arribas-Bel & Sanz-Gracia 2014; Ha et al. 2024; Kane et al. 2018).
                  Robustness: Ha et al. 2024 rule, annual density >= P95 + contiguous cluster >= 2% of jobs.
   Communities  : Leiden modularity (Traag et al. 2019), undirected w_ij = F_ij + F_ji, within-metro tract pairs
-                 >= 3 jobs, no self-loops (Nelson & Rae 2016); gamma chosen once (grid 0.5-2.0, 50 seeds/yr,
-                 closest to 1 with pooled mean pairwise ARI >= 0.90); annual consensus partition over 100 seeds
+                 >= 3 jobs, no self-loops (Nelson & Rae 2016); gamma = GAMMA_MAIN = 1.0 (modularity default). A
+                 stability scan (grid 0.5-2.0, 50 seeds/yr, gamma_scan.csv) found ARI >= 0.90 plateaus only at
+                 trivial (<= 0.7, 2-3 communities) or very fine (>= 1.7) resolutions, so the ARI rule is NOT used
+                 to pick gamma; 0.7 and 1.7 are reported as sensitivity; annual consensus partition over 100 seeds
                  (Lancichinetti & Fortunato 2012); tracked by Jaccard theta = 0.3 (Greene et al. 2010).
                  Sensitivity: self-loops included.
   Flow trends  : pairs with mean >= 10 jobs (or first/last-5-year mean >= 10); Hamed-Rao modified Mann-Kendall
@@ -39,7 +41,7 @@ import statsmodels.api as sm
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from config import OUT, METROS, RAW, YEARS
+from config import OUT, RAW, YEARS, STATE_FIPS, metro_def
 
 SEED = 20261106
 GAMMAS = np.round(np.arange(0.5, 2.01, 0.1), 2)
@@ -48,13 +50,6 @@ PERM, ALPHA = 999, 0.05
 CENTRE_MIN_SHARE = 0.02
 LONG_MI = 100
 GAMMA_MAIN, GAMMA_SENS = 1.0, (0.7, 1.7)
-PLACES = [("Springfield", 37.2090, -93.2923), ("Nixa", 37.0434, -93.2944), ("Ozark", 37.0209, -93.2060),
-          ("Republic", 37.1201, -93.4802), ("Marshfield", 37.3387, -92.9071), ("Bolivar", 37.6145, -93.4105),
-          ("Buffalo", 37.6439, -93.0924), ("Willard", 37.3050, -93.4285), ("Strafford", 37.2681, -93.1171),
-          ("Rogersville", 37.1173, -93.0557), ("Battlefield", 37.1156, -93.3702), ("Clever", 37.0306, -93.4730),
-          ("Fair Grove", 37.3834, -93.1513), ("Ash Grove", 37.3153, -93.5852), ("Fordland", 37.1578, -92.9405),
-          ("Sparta", 37.0003, -93.0816), ("Humansville", 37.7942, -93.5780), ("Seymour", 37.1464, -92.7688),
-          ("Urbana", 37.8456, -93.1666), ("Pleasant Hope", 37.4592, -93.2702)]
 
 
 # ------------------------------------------------------------------ helpers
@@ -95,12 +90,14 @@ def local_moran(z, W, rng, perm=PERM):
     """Local Moran's I with conditional permutation pseudo p-values (folded, two-sided like PySAL's p_sim)."""
     n = len(z); lag = W @ z; I = z * lag
     k = (W > 0).sum(1).astype(int); p = np.ones(n)
+    kmax = int(k.max())
+    # one shared set of random draws without replacement (as PySAL's crand), reused for every tract
+    R = np.argpartition(rng.random((perm, n - 1)), kmax, axis=1)[:, :kmax]
     for i in range(n):
         if k[i] == 0:
             continue
         others = np.delete(z, i)
-        pick = rng.random((perm, n - 1)).argsort(1)[:, :k[i]]          # k_i neighbours drawn without replacement
-        Ip = z[i] * others[pick].mean(1)
+        Ip = z[i] * others[R[:, :k[i]]].mean(1)
         larger = (Ip >= I[i]).sum() if I[i] >= 0 else (Ip <= I[i]).sum()
         larger = min(larger, perm - larger)
         p[i] = (larger + 1) / (perm + 1)
@@ -123,7 +120,7 @@ def components(nodes, adj):
 
 
 def main(metro="springfield"):
-    M = METROS[metro]; C = M["counties"]
+    M = metro_def(metro); C = M["counties"]
     od = OUT / metro; p3 = od / "phase3"; p3.mkdir(exist_ok=True); (p3 / "figures").mkdir(exist_ok=True)
     rng = np.random.default_rng(SEED)
     con = duckdb.connect()
@@ -131,7 +128,7 @@ def main(metro="springfield"):
     P["h_in"], P["w_in"] = P.h_node.str[:5].isin(C), P.w_node.str[:5].isin(C)
     nodes = pd.read_csv(od / "nodes.csv", dtype={"node": str, "county": str})
     tracts = sorted(nodes[nodes.type == "tract"].node)
-    shp = gpd.read_file(RAW / "tiger" / "tl_2020_29_tract.shp")
+    shp = pd.concat([gpd.read_file(RAW / "tiger" / f"tl_2020_{STATE_FIPS[s]}_tract.shp") for s in M["states"]], ignore_index=True)
     shp = shp[shp.GEOID.isin(tracts)].set_index("GEOID").loc[tracts]
     acres = (shp.ALAND / 4046.856).values
     nb = gpd.sjoin(shp.reset_index()[["GEOID", "geometry"]], shp.reset_index()[["GEOID", "geometry"]], predicate="intersects")
@@ -300,6 +297,12 @@ def main(metro="springfield"):
     # community labels (nearest place to job-weighted centroid) and stable colour slots (greedy, neighbours differ)
     tj = T.groupby("tract").jobs.sum()
     nl = nodes.set_index("node")
+    # candidate names: incorporated/census places inside the metro, the larger third by land area
+    pl = pd.concat([gpd.read_file(RAW / "tiger" / f"tl_2020_{STATE_FIPS[s_]}_place.shp") for s_ in M["states"]], ignore_index=True)
+    pl = gpd.GeoDataFrame(pl[["NAME", "ALAND"]], geometry=gpd.points_from_xy(pl.INTPTLON.astype(float), pl.INTPTLAT.astype(float)), crs=4326)
+    pl = gpd.sjoin(pl, shp.reset_index()[["GEOID", "geometry"]].to_crs(4326), predicate="within")
+    pl = pl[pl.ALAND >= pl.ALAND.quantile(0.67)] if len(pl) > 12 else pl
+    PLACES = [(r.NAME, r.geometry.y, r.geometry.x) for r in pl.itertuples()]
     for jt in ["JT02", "JT00"]:
         c = CO[CO.jt == jt]
         size = c.groupby("community").size().sort_values(ascending=False)

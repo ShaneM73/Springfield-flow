@@ -6,7 +6,7 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 
-const V = 1;
+const V = 2;
 const TEX_SCALE = 2;
 const MESH_STEP = 2;
 const NSEG = 14;                       // segments per arc
@@ -34,11 +34,11 @@ const fmt = (v) => v == null || Number.isNaN(v) ? '–' : Math.round(v).toLocale
 const pct = (v, d = 1) => v == null || Number.isNaN(v) ? '–' : (100 * v).toFixed(d) + '%';
 
 const state = {
-  scale: 'metro', view: 'cube', jt: 'JT02', dir: new Set(['w', 'i', 'o']), colour: 'dir', seg: 'S000', minFlow: 10,
+  metro: 'springfield', scale: 'metro', view: 'cube', jt: 'JT02', dir: new Set(['w', 'i', 'o']), colour: 'dir', seg: 'S000', minFlow: 10,
   surface: 'community', relief: 12, stack: true, labels: true, theme: 'light', year: 2024, sel: null, playing: false,
 };
 
-let app, base, flows = {}, renderer, scene, camera, controls, raycaster = new THREE.Raycaster(), pointer = new THREE.Vector2();
+let app, base, metros, nation, flows = {}, renderer, scene, camera, controls, raycaster = new THREE.Raycaster(), pointer = new THREE.Vector2();
 let world, slice, terrain, terrainTex, texCanvas, texCtx, reliefCanvas, heights, gridW, gridH, meta, layers = [], axisGroup;
 const labelEls = [];
 const lineMats = [];
@@ -51,11 +51,11 @@ async function init() {
   const saved = (() => { try { return localStorage.getItem('sf-theme'); } catch { return null; } })();
   state.theme = saved || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   document.documentElement.dataset.theme = state.theme;
-  [app, base, flows.JT02] = await Promise.all([getJson(`data/app.json?v=${V}`), getJson(`data/basemap.json?v=${V}`), getJson(`data/flows_JT02.json?v=${V}`)]);
-  base.img = {};
-  [base.img.metro, base.img.nation] = await Promise.all([loadImage(`data/terrain_metro.png?v=${V}`), loadImage(`data/terrain_nation.png?v=${V}`)]);
-  app.nodeIdx = Object.fromEntries(app.nodes.map((n, i) => [n.id, i]));
-  state.year = app.years[app.years.length - 1];
+  const h0 = new URLSearchParams(location.hash.slice(1));
+  [metros, nation] = await Promise.all([getJson(`data/index.json?v=${V}`), getJson(`data/nation/basemap.json?v=${V}`)]);
+  nation.img = await loadImage(`data/nation/terrain.png?v=${V}`);
+  if (h0.get('metro') && metros.some((m) => m.key === h0.get('metro'))) state.metro = h0.get('metro');
+  await loadMetro(state.metro);
   readHash();
   if (state.jt === 'JT00') await ensureFlows('JT00');
   buildRenderer();
@@ -68,19 +68,35 @@ async function init() {
 }
 
 async function ensureFlows(jt) {
-  if (!flows[jt]) { $('loading').classList.remove('done'); flows[jt] = await getJson(`data/flows_${jt}.json?v=${V}`); $('loading').classList.add('done'); }
+  if (!flows[jt]) { $('loading').classList.remove('done'); flows[jt] = await getJson(`data/${state.metro}/flows_${jt}.json?v=${V}`); $('loading').classList.add('done'); }
+}
+
+// load one metro's data; the nation basemap is shared
+async function loadMetro(key) {
+  state.metro = key; flows = {};
+  const [a, b, img] = await Promise.all([getJson(`data/${key}/app.json?v=${V}`), getJson(`data/${key}/basemap.json?v=${V}`), loadImage(`data/${key}/terrain.png?v=${V}`)]);
+  app = a; flows.JT02 = await getJson(`data/${key}/flows_JT02.json?v=${V}`);
+  base = { meta: { elevOffset: b.meta.elevOffset, metro: b.meta.metro, nation: nation.meta.nation },
+           geo: { metro: b.geo, nation: nation.geo }, img: { metro: img, nation: nation.img } };
+  app.nodeIdx = Object.fromEntries(app.nodes.map((n, i) => [n.id, i]));
+  if (!app.years.includes(state.year)) state.year = app.years[app.years.length - 1];
+  const short = app.name.split(',')[0];
+  $('title').textContent = `${short} Commuting Flows`;
+  document.title = `${short} Commuting Flows`;
+  $('subtitle').textContent = `${app.name} metro (CBSA ${app.cbsa}) · LEHD LODES 8.5`;
 }
 
 // deep links: #scale=nation&view=map&year=2010&jt=JT00&surface=density&colour=trend&tract=29077002200
 function readHash() {
   const h = new URLSearchParams(location.hash.slice(1));
   for (const k of ['scale', 'view', 'jt', 'surface', 'colour', 'seg']) if (h.get(k)) state[k] = h.get(k);
+  if (state.jt === 'JT00' && state.year < 2010) state.year = 2010;
   if (h.get('year')) state.year = +h.get('year');
   if (h.get('tract') && app.tracts[h.get('tract')]) state.sel = h.get('tract');
   if (h.get('stack') === '0') state.stack = false;
 }
 function writeHash() {
-  const h = new URLSearchParams({ scale: state.scale, view: state.view, year: state.year, jt: state.jt, surface: state.surface, colour: state.colour });
+  const h = new URLSearchParams({ metro: state.metro, scale: state.scale, view: state.view, year: state.year, jt: state.jt, surface: state.surface, colour: state.colour });
   if (state.sel) h.set('tract', state.sel);
   history.replaceState(null, '', '#' + h.toString());
 }
@@ -255,6 +271,9 @@ function drawSlice() {
       ctx.lineWidth = (c.msa ? 1.8 : 1.1) * TEX_SCALE; ctx.strokeStyle = `rgba(${ink},${c.msa ? 0.7 : 0.4})`;
       pathRings(ctx, c.rings); ctx.stroke();
     }
+    ctx.lineWidth = 2.2 * TEX_SCALE; ctx.strokeStyle = `rgba(${ink},0.55)`; ctx.setLineDash([6 * TEX_SCALE, 4 * TEX_SCALE]);
+    for (const st of base.geo.metro.states || []) { pathRings(ctx, st.rings); ctx.stroke(); }
+    ctx.setLineDash([]);
   } else {
     ctx.lineWidth = 1.2 * TEX_SCALE; ctx.strokeStyle = `rgba(${ink},0.45)`;
     for (const s of base.geo.nation.states) { pathRings(ctx, s.rings); ctx.stroke(); }
@@ -560,6 +579,7 @@ function lineChart(el, o) {
   let y0 = o.min ?? Math.min(...all), y1 = o.max ?? Math.max(...all);
   if (o.min == null) y0 = Math.max(0, y0 - (y1 - y0) * 0.15) === 0 && y0 >= 0 && o.zero ? 0 : y0 - (y1 - y0) * 0.1;
   y1 += (y1 - y0) * 0.08;
+  if (!(y1 - y0 > 1e-9)) { y0 = (o.min ?? y0) - 0.5; y1 = y0 + 1; }   // constant or empty series
   const X = (y) => m.l + (y - yrs[0]) / (yrs.length - 1) * (W - m.l - m.r), Y = (v) => m.t + (1 - (v - y0) / (y1 - y0)) * (Hc - m.t - m.b);
   const cols = CAT[state.theme].series;
   const ticks = niceTicks(y0, y1, 4);
@@ -634,6 +654,17 @@ function seg(id, key, onChange, multi) {
   });
 }
 function buildUI() {
+  const mp = $('metro');
+  mp.innerHTML = metros.map((m) => `<option value="${m.key}">${m.name}</option>`).join('');
+  mp.value = state.metro;
+  mp.onchange = async (e) => {
+    $('loading').classList.remove('done'); $('loadingText').textContent = 'Loading metro…';
+    state.sel = null; $('selection').hidden = true;
+    await loadMetro(e.target.value);
+    if (state.jt === 'JT00') await ensureFlows('JT00');
+    buildScale(); renderMethods();
+    $('loading').classList.add('done');
+  };
   $('seg').value = state.seg; $('surface').value = state.surface; $('stack').checked = state.stack;
   $('selection').hidden = !state.sel;
   seg('scale', 'scale', () => { state.sel = null; $('selection').hidden = true; buildScale(); });

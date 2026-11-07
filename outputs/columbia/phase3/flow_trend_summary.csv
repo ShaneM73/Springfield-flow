@@ -1,0 +1,9 @@
+jt,scale,subset,pairs,workers_mean,new,intensifying,persistent,declining,fading,sporadic
+JT00,metro,all,2660,100905,10,455,1109,176,5,905
+JT00,metro,excl. flagged,1482,56191,1,278,719,86,1,397
+JT00,nation,all,404,63253,0,94,178,16,0,116
+JT00,nation,excl. flagged,183,39524,0,36,105,8,0,34
+JT02,metro,all,2270,64849,69,863,544,241,8,545
+JT02,metro,excl. flagged,1402,41899,15,502,390,167,3,325
+JT02,nation,all,360,44267,20,213,57,15,0,55
+JT02,nation,excl. flagged,174,27023,0,103,39,12,0,20
