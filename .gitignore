@@ -8,3 +8,6 @@ outputs/**/panel.parquet
 __pycache__/
 # project brief from the earlier session (kept local)
 springfield_lodes_handoff_prompt.md
+
+# manuscript drafts live in the private repo ShaneM73/Springfield-flow-manuscript
+outputs/manuscript/

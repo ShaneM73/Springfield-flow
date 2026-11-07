@@ -6,7 +6,7 @@ Annual, artefact-aware analysis of commuting **flow** networks in Missouri's met
 
 Results: [Phase 1–2](outputs/springfield/PHASE1_2_RESULTS.md) · [Phase 3](outputs/springfield/PHASE3_RESULTS.md) · [Methods & citations](outputs/springfield/phase3/METHODS.md)
 
-Status (2026-11-07): Phases 1–3 done for Springfield and running for the other seven metros; cross-metro comparison in `outputs/comparison/`; manuscript materials in `outputs/manuscript/`.
+Status (2026-11-07): Phases 1–4 done for all eight metros on identical code; cross-metro comparison in `outputs/comparison/`; external benchmarks (QCEW, ACS, national LODES check) in `outputs/external/`; manuscript drafts and review notes are kept in a separate private repository.
 
 ## Data note: LODES is now 8.5
 
@@ -24,8 +24,9 @@ parquet/oos/             rows of every other state's aux files with a MO/KS/IL h
 outputs/manifest_mo.csv  file, bytes, rows, sum_S000, createdate, sha256, download date, version
 outputs/<metro>/         counties.json, blockflows.parquet, panel.parquet, nodes.csv, tables/, figures/, phase3/, pipeline.log
 outputs/comparison/      cross-metro tables and figures (scripts/06_compare.py)
-scripts/                 config.py (METROS), 00_fetch_outofstate.py ... 06_compare.py, 07_structure_tests.py (Phase 4), 08_external_controls.py (QCEW, ACS), 09_acs_b08007.py (annual ACS vs LODES self-containment), run_metro.sh, run_all.sh, run_rest.sh
-outputs/external/        QCEW, ACS work-from-home, ACS county flows and B08007, statewide LODES residence checks; figures/
+scripts/                 config.py (METROS), 00_fetch_outofstate.py ... 06_compare.py, 07_structure_tests.py (Phase 4), 08_external_controls.py (QCEW, ACS), 09_acs_b08007.py + 09c/09d/09e (annual and 5-yr ACS vs LODES self-containment, margins of error, work-from-home adjustment), 10_firmsize_* (WAC firm size vs assigned distance), 11_paper1_figures.py, 13*_national_* (all-state 2004-2011 check of the 2007 step), run_metro.sh, run_all.sh, run_rest.sh
+outputs/external/        QCEW, ACS work-from-home, ACS county flows and B08007 (1-yr 2005-24, 5-yr), WAC firm size, national 2004-11 state series; *.md notes; figures/
+Data/{mo,ks,il}/wac/      LODES WAC JT02 2011-2024 (firm size/age); Data/national/od/  main JT02 2004-2011, all states (3.9 GB)
 download_lodes.py        downloads to Data/, years 2002-2024, state list on CLI, SHA-256 verification
 docs/                    web app (three.js) + its data; served by GitHub Pages
 tools/                   basemap (terrain + outlines) and web-data builders
