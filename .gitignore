@@ -1,0 +1,10 @@
+# raw and bulky data stay on the server (re-create with download_lodes.py and scripts/00-02)
+Data/
+parquet/
+outputs/**/blockflows.parquet
+outputs/**/panel.parquet
+*.log
+.venv/
+__pycache__/
+# project brief from the earlier session (kept local)
+springfield_lodes_handoff_prompt.md

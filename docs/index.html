@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Springfield Commuting Flows</title>
+  <meta name="description" content="A 3D space-time cube of commuting flows in the Springfield, Missouri metro, 2002-2024, from LEHD LODES: tract-to-tract flows, in-state and out-of-state commuters, commuting communities and flow trends stacked along a time axis.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="style.css?v=1">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="scene"></div>
+  <div id="labels" aria-hidden="true"></div>
+
+  <aside id="panel">
+    <header>
+      <p class="eyebrow">Space–time flows · 2002–2024</p>
+      <h1>Springfield Commuting Flows</h1>
+      <p class="eyebrow" style="margin-top:4px;text-transform:none;letter-spacing:0;font-weight:500">Springfield, MO metro (CBSA 44180) · LEHD LODES 8.5</p>
+      <button id="panelToggle" class="icon-btn" aria-label="Toggle controls" aria-expanded="true">
+        <svg viewBox="0 0 24 24" width="18" height="18"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </header>
+
+    <div class="now">
+      <div id="year" class="year">—</div>
+      <div id="period" class="period"></div>
+      <div id="span" class="span"></div>
+    </div>
+
+    <section class="stats" id="stats"></section>
+
+    <section id="selection" hidden>
+      <div class="sel-head">
+        <div><div id="selName" class="sel-name"></div><div id="selMeta" class="sel-meta"></div></div>
+        <button id="selClose" class="icon-btn" aria-label="Clear selection">
+          <svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div id="selChart" class="chart"></div>
+    </section>
+
+    <section class="controls">
+      <div class="row"><span>Scale</span>
+        <div class="seg" id="scale"><button data-v="metro" class="on">Metro</button><button data-v="nation">Nation</button></div></div>
+      <div class="row"><span>View</span>
+        <div class="seg" id="view"><button data-v="cube" class="on">Cube</button><button data-v="map">Map</button></div></div>
+      <div class="row"><span>Jobs</span>
+        <div class="seg" id="jt"><button data-v="JT02" class="on">Private</button><button data-v="JT00">All (2010+)</button></div></div>
+      <div class="row"><span>Flows</span>
+        <div class="seg multi" id="dir"><button data-v="w" class="on">Within</button><button data-v="i" class="on">Inbound</button><button data-v="o" class="on">Outbound</button></div></div>
+      <div class="row"><span>Colour by</span>
+        <div class="seg" id="colour"><button data-v="dir" class="on">Direction</button><button data-v="trend">Trend</button></div></div>
+      <label class="row"><span>Workers</span>
+        <select id="seg" class="pick">
+          <option value="S000">All workers</option>
+          <option value="SE01">Earn ≤ $1,250/mo</option>
+          <option value="SE02">Earn $1,251–3,333/mo</option>
+          <option value="SE03">Earn &gt; $3,333/mo</option>
+          <option value="SI01">Goods-producing</option>
+          <option value="SI02">Trade, transport, utilities</option>
+          <option value="SI03">Other services</option>
+          <option value="SA01">Age ≤ 29</option>
+          <option value="SA02">Age 30–54</option>
+          <option value="SA03">Age 55+</option>
+        </select></label>
+      <label class="row"><span>Min. flow <em id="minVal">10</em></span>
+        <input id="minFlow" type="range" min="10" max="300" step="5" value="10"></label>
+      <label class="row"><span>Surface</span>
+        <select id="surface" class="pick">
+          <option value="community">Commuting communities</option>
+          <option value="density">Job density</option>
+          <option value="centre">Job centres</option>
+          <option value="none">Relief only</option>
+        </select></label>
+      <label class="row"><span>Relief <em id="reliefVal">×12</em></span>
+        <input id="relief" type="range" min="0" max="40" step="1" value="12"></label>
+      <label class="row"><span>Time stack</span><input id="stack" type="checkbox" class="switch" checked></label>
+      <label class="row"><span>Labels</span><input id="labelsToggle" type="checkbox" class="switch" checked></label>
+      <div class="row"><span>Theme</span>
+        <div class="seg" id="theme"><button data-v="light">Light</button><button data-v="dark">Dark</button></div></div>
+      <div id="legend" class="legend"></div>
+    </section>
+
+    <section>
+      <h2>Indicators, 2002–2024</h2>
+      <div id="charts"></div>
+      <details>
+        <summary>Table view</summary>
+        <div id="tableView"></div>
+      </details>
+      <details>
+        <summary>Methods &amp; caveats</summary>
+        <div id="methods"></div>
+      </details>
+    </section>
+
+    <p class="hint">Drag to orbit · scroll to zoom · hover a tract or county · click a tract to trace its flows through time · ← → step · space plays</p>
+    <footer>
+      Data: <a href="https://lehd.ces.census.gov/data/" target="_blank" rel="noopener">US Census Bureau LEHD Origin-Destination Employment Statistics (LODES 8.5)</a>.
+      Terrain: <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noopener">AWS Terrain Tiles</a>.
+      Boundaries: Census TIGER/Line 2020. Distances are straight lines between block internal points.
+    </footer>
+    <p class="credit">Designed by <b>Prof. Xin (Shane) Miao</b>, Missouri State University · <a href="https://github.com/ShaneM73/Springfield-flow" target="_blank" rel="noopener">GitHub</a></p>
+  </aside>
+
+  <div id="tooltip" hidden></div>
+
+  <div id="timeline">
+    <button id="play" class="play" aria-label="Play">
+      <svg id="playIcon" viewBox="0 0 24 24" width="18" height="18"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
+    </button>
+    <div id="track" role="slider" tabindex="0" aria-label="Year">
+      <div id="rail"></div>
+      <div id="ticks"></div>
+      <div id="thumb"><span id="thumbLabel"></span></div>
+    </div>
+  </div>
+
+  <div id="loading"><div class="spinner"></div><span id="loadingText">Loading flows…</span></div>
+
+  <script type="module" src="js/app.js?v=1"></script>
+</body>
+</html>

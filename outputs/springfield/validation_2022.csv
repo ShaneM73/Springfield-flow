@@ -1,0 +1,44 @@
+measure,handoff,pipeline,match
+"Jobs in MSA (MO residents, main)",212808,212808,True
+Live and work in MSA,158912,158912,True
+Commute in from outside MSA (MO),53896,53896,True
+"Live in MSA, work outside (MO)",36901,36901,True
+MSA tracts,117,117,True
+Cross-node commuters in pairs >=10 (%),77.5,77.5,True
+(info) within-MSA cross-tract in pairs >=10 (%),-,81.3,True
+Greene resident workers,122620,122620,True
+Greene jobs,173676,173676,True
+Greene jobs/resident worker,1.42,1.42,True
+Greene work in own county %,78,78,True
+Christian resident workers,39101,39101,True
+Christian jobs,19382,19382,True
+Christian jobs/resident worker,0.5,0.5,True
+Christian work in own county %,21,21,True
+Webster resident workers,14359,14359,True
+Webster jobs,7912,7912,True
+Webster jobs/resident worker,0.55,0.55,True
+Webster work in own county %,24,24,True
+Polk resident workers,13201,13201,True
+Polk jobs,9493,9493,True
+Polk jobs/resident worker,0.72,0.72,True
+Polk work in own county %,36,36,True
+Dallas resident workers,6532,6532,True
+Dallas jobs,2345,2345,True
+Dallas jobs/resident worker,0.36,0.36,True
+Dallas work in own county %,15,15,True
+"Median miles, home Greene",5.0,5.0,True
+"Median miles, home Christian",10.4,10.4,True
+"Median miles, home Polk",15.2,15.2,True
+"Median miles, home Webster",17.2,17.2,True
+"Median miles, home Dallas",23.5,23.5,True
+"Median miles, <=$1,250",5.7,5.7,True
+"Median miles, $1,251-3,333",6.0,6.0,True
+"Median miles, >$3,333",7.2,7.2,True
+"Median miles, goods",8.5,8.5,True
+"Median miles, trade/transp/util",7.1,7.1,True
+"Median miles, other services",5.9,5.9,True
+Christian -> Greene,22062,22062,True
+Top-5 tract share of MSA jobs (%),27,27,True
+Largest tract,29077002200,29077002200,True
+Largest tract jobs (~),18000,18031,True
+Top outside sources,"29109,29213,29209,29097","29109,29213,29209,29097",True
