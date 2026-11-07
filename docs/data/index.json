@@ -67,5 +67,29 @@
   "counties": 3,
   "tracts": 26,
   "jobs2024": 38049.0
+ },
+ {
+  "key": "kansascity",
+  "name": "Kansas City, MO-KS",
+  "cbsa": "28140",
+  "states": [
+   "MO",
+   "KS"
+  ],
+  "counties": 14,
+  "tracts": 607,
+  "jobs2024": 996655.0
+ },
+ {
+  "key": "stlouis",
+  "name": "St. Louis, MO-IL",
+  "cbsa": "41180",
+  "states": [
+   "MO",
+   "IL"
+  ],
+  "counties": 15,
+  "tracts": 696,
+  "jobs2024": 1269186.0
  }
 ]

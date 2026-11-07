@@ -1,22 +1,22 @@
 jt,community,label,slot,tract_years,first,last
-JT02,1,St. Joseph central,0,303,2002,2024
-JT02,0,St. Joseph central 2,1,286,2002,2024
+JT02,1,St. Joseph central,0,306,2002,2024
+JT02,0,St. Joseph central 2,1,284,2002,2024
 JT02,3,St. Joseph E,2,47,2002,2013
 JT02,5,St. Joseph E 2,3,46,2009,2018
-JT02,8,St. Joseph central 3,2,43,2015,2024
+JT02,9,St. Joseph central 3,2,43,2015,2024
 JT02,4,St. Joseph central 4,4,30,2005,2010
 JT02,2,Savannah central,3,27,2002,2007
-JT02,11,St. Joseph SE,3,20,2022,2024
+JT02,11,St. Joseph SE,3,19,2022,2024
 JT02,10,Stewartsville,4,18,2019,2024
 JT02,7,St. Joseph E 3,2,12,2014,2014
-JT02,9,Maysville,2,9,2015,2017
+JT02,8,Maysville,2,9,2015,2017
 JT02,6,Wathena,2,6,2012,2013
 JT02,12,Savannah central 2,1,4,2024,2024
-JT00,0,St. Joseph central,0,241,2010,2024
-JT00,1,St. Joseph central 2,1,85,2010,2017
-JT00,5,St. Joseph central 3,1,83,2019,2024
-JT00,3,Elwood,2,49,2010,2024
-JT00,4,Maysville,2,45,2010,2024
+JT00,0,St. Joseph central,0,247,2010,2024
+JT00,1,St. Joseph central 2,1,80,2010,2017
+JT00,4,Elwood,2,49,2010,2024
+JT00,5,St. Joseph central 3,1,46,2019,2021
+JT00,3,Maysville,2,45,2010,2024
 JT00,2,St. Joseph NE,3,44,2010,2019
-JT00,6,Savannah central,0,4,2021,2021
-JT00,7,Savannah central 2,0,4,2024,2024
+JT00,6,St. Joseph NE 2,3,40,2021,2024
+JT00,7,Savannah,0,4,2024,2024

@@ -94,7 +94,7 @@ def mk_series(v):
 
 
 def bh(p):
-    p = np.asarray(p, float); o = np.argsort(p); m = len(p); q = np.empty(m)
+    p = np.nan_to_num(np.asarray(p, float), nan=1.0); o = np.argsort(p); m = len(p); q = np.empty(m)
     q[o] = np.minimum.accumulate((p[o] * m / np.arange(1, m + 1))[::-1])[::-1]
     return np.minimum(q, 1)
 

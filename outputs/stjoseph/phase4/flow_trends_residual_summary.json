@@ -6,6 +6,6 @@
  "sig_raw": 285,
  "intens_raw": 116,
  "decl_raw": 169,
- "perm_expected_sig_mean": 0.0,
- "perm_expected_sig_max": 0
+ "perm_expected_sig_mean": 8.55,
+ "perm_expected_sig_max": 26
 }

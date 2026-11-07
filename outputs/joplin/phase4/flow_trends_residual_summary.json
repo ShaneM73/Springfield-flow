@@ -3,9 +3,9 @@
  "sig_residual": 286,
  "intens_residual": 156,
  "decl_residual": 130,
- "sig_raw": 0,
- "intens_raw": 0,
- "decl_raw": 0,
- "perm_expected_sig_mean": 0.0,
- "perm_expected_sig_max": 0
+ "sig_raw": 591,
+ "intens_raw": 332,
+ "decl_raw": 259,
+ "perm_expected_sig_mean": 19.3,
+ "perm_expected_sig_max": 55
 }

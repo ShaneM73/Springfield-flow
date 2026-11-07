@@ -1,11 +1,11 @@
 jt,community,label,slot,tract_years,first,last
-JT02,0,Columbia N,0,445,2002,2024
-JT02,1,Columbia central,1,433,2002,2024
+JT02,0,Columbia N,0,440,2002,2024
+JT02,1,Columbia central,1,440,2002,2024
 JT02,2,New Franklin,2,187,2002,2024
 JT02,3,Ashland SW,2,25,2002,2011
 JT02,5,Columbia S,2,8,2016,2018
-JT02,6,Ashland S,2,4,2020,2021
-JT02,4,Ashland S 2,2,2,2014,2014
+JT02,4,Ashland S,2,2,2014,2014
+JT02,6,Ashland S 2,2,2,2020,2020
 JT00,0,Columbia N,0,350,2010,2024
 JT00,1,Columbia central,1,228,2010,2024
 JT00,2,New Franklin,2,120,2010,2024

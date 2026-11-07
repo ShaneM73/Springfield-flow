@@ -26,6 +26,7 @@ Methods are chosen from the literature (see outputs/<metro>/phase3/METHODS.md); 
 """
 import json
 import sys
+from concurrent.futures import ProcessPoolExecutor
 from itertools import combinations
 
 import duckdb
@@ -49,6 +50,7 @@ N_SCAN, N_CONS, THETA, MIN_EDGE = 50, 100, 0.3, 3
 PERM, ALPHA = 999, 0.05
 CENTRE_MIN_SHARE = 0.02
 LONG_MI = 100
+WORKERS = 16                      # processes for the per-year / per-pair work
 GAMMA_MAIN, GAMMA_SENS = 1.0, (0.7, 1.7)
 
 
@@ -102,6 +104,39 @@ def local_moran(z, W, rng, perm=PERM):
         larger = min(larger, perm - larger)
         p[i] = (larger + 1) / (perm + 1)
     return I, lag, p
+
+
+def _mkgraph(n, edges, weights):
+    G = ig.Graph(n=n, edges=edges); G.es["weight"] = weights; return G
+
+
+def _lisa_job(a):
+    z, W, seed = a
+    return local_moran(z, W, np.random.default_rng(int(seed)))
+
+
+def _scan_job(a):
+    n, edges, weights, g, seeds = a
+    G = _mkgraph(n, edges, weights)
+    mem = [leiden(G, g, s)[0] for s in seeds]
+    return dict(mean_ari=np.mean([ari(mem[i], mem[j]) for i, j in combinations(range(len(mem)), 2)]),
+                n_comm=np.mean([len(set(m)) for m in mem]), modularity=G.modularity(mem[0], weights="weight", resolution=g))
+
+
+def _cons_job(a):
+    n, edges, weights, g, seed, nseeds = a
+    return consensus(_mkgraph(n, edges, weights), g, np.random.default_rng(int(seed)), n=nseeds)
+
+
+def _mk_job(v):
+    try:
+        r = mk.hamed_rao_modification_test(v); return r.Tau, r.p, r.slope
+    except Exception:
+        return np.nan, 1.0, np.nan
+
+
+def gparts(G):
+    return G.vcount(), [e.tuple for e in G.es], G.es["weight"]
 
 
 def components(nodes, adj):
@@ -168,10 +203,14 @@ def main(metro="springfield"):
         J3 = J.T.rolling(3, center=True, min_periods=2).mean().T     # centred 3-yr mean
         cand = {}
         lisa = {}
+        zs = {}
         for y in ys:
-            j = J3[y].values; dens = j / acres
-            z = np.log(dens + 0.01); z = (z - z.mean()) / z.std()
-            I, lag, p = local_moran(z, W, rng)
+            dens = J3[y].values / acres; z = np.log(dens + 0.01); zs[y] = (z - z.mean()) / z.std()
+        with ProcessPoolExecutor(WORKERS) as ex:
+            lisa_res = dict(zip(ys, ex.map(_lisa_job, [(zs[y], W, rng.integers(0, 2**31)) for y in ys])))
+        for y in ys:
+            j = J3[y].values; dens = j / acres; z = zs[y]
+            I, lag, p = lisa_res[y]
             p90 = np.percentile(dens, 90)
             hh = (z > 0) & (lag > 0) & (p < ALPHA)
             hl = (z > 0) & (lag < 0) & (p < ALPHA) & (dens > p90)
@@ -220,13 +259,12 @@ def main(metro="springfield"):
 
     scan = []
     G2 = {y: graph("JT02", y) for y in YEARS}
-    for g in ([] if (p3 / "gamma_scan.csv").exists() else GAMMAS):
-        for y in YEARS:
-            parts = [leiden(G2[y], g, s) for s in rng.integers(0, 2**31, N_SCAN)]
-            mem = [p[0] for p in parts]
-            a = np.mean([ari(mem[i], mem[j]) for i, j in combinations(range(N_SCAN), 2)])
-            scan.append(dict(gamma=g, year=y, mean_ari=a, n_comm=np.mean([len(set(m)) for m in mem]),
-                             modularity=G2[y].modularity(mem[0], weights="weight", resolution=g)))
+    GP = {y: gparts(G2[y]) for y in YEARS}
+    if not (p3 / "gamma_scan.csv").exists():
+        jobs = [(g, y, rng.integers(0, 2**31, N_SCAN)) for g in GAMMAS for y in YEARS]
+        with ProcessPoolExecutor(WORKERS) as ex:
+            outs = list(ex.map(_scan_job, [(*GP[y], g, seeds) for g, y, seeds in jobs], chunksize=4))
+        scan = [dict(gamma=g, year=y, **o) for (g, y, _), o in zip(jobs, outs)]
     SC = pd.DataFrame(scan) if scan else pd.read_csv(p3 / "gamma_scan.csv")
     SC.to_csv(p3 / "gamma_scan.csv", index=False)
     pooled = SC.groupby("gamma").agg(mean_ari=("mean_ari", "mean"), min_ari=("mean_ari", "min"), n_comm=("n_comm", "mean"))
@@ -240,9 +278,12 @@ def main(metro="springfield"):
     com_rows, com_sum, lab_rows = [], [], []
     for jt in ["JT02", "JT00"]:
         ys = jt_years(jt); prev = None; next_id = 0; raw = {}
+        Gs = {y: (G2[y] if jt == "JT02" else graph(jt, y)) for y in ys}
+        with ProcessPoolExecutor(WORKERS) as ex:
+            mems = dict(zip(ys, ex.map(_cons_job, [(*gparts(Gs[y]), gamma, rng.integers(0, 2**31), N_CONS) for y in ys])))
         for y in ys:
-            G = G2[y] if jt == "JT02" else graph(jt, y)
-            mem = consensus(G, gamma, rng)
+            G = Gs[y]
+            mem = mems[y]
             iso = np.array(G.degree()) == 0                      # isolated tracts get no community
             groups = {c: {tracts[i] for i in np.where((mem == c) & ~iso)[0]} for c in set(mem[~iso])}
             # Greene et al. (2010) matching with theta = 0.3
@@ -279,14 +320,18 @@ def main(metro="springfield"):
             prev = cur
         # self-loop sensitivity (JT02 only): ARI between partitions with and without self-loops
         if jt == "JT02":
-            sl = [ari(raw[y], consensus(graph(jt, y, True), gamma, rng, n=30)) for y in ys]
+            with ProcessPoolExecutor(WORKERS) as ex:
+                sl_m = list(ex.map(_cons_job, [(*gparts(graph(jt, y, True)), gamma, rng.integers(0, 2**31), 30) for y in ys]))
+            sl = [ari(raw[y], m_) for y, m_ in zip(ys, sl_m)]
             for row, v in zip([r for r in com_sum if r["jt"] == jt], sl):
                 row["ari_selfloops"] = v
     sens = []
     for gs in GAMMA_SENS:
         prevp = None
+        with ProcessPoolExecutor(WORKERS) as ex:
+            mms = dict(zip(YEARS, ex.map(_cons_job, [(*GP[y], gs, rng.integers(0, 2**31), 30) for y in YEARS])))
         for y in YEARS:
-            mm = consensus(G2[y], gs, rng, n=30)
+            mm = mms[y]
             sens.append(dict(gamma=gs, year=y, n_communities=len(set(mm)), ari_prev_year=ari(prevp, mm) if prevp is not None else np.nan))
             prevp = mm
     pd.DataFrame(sens).to_csv(p3 / "communities_gamma_sensitivity.csv", index=False)
@@ -358,15 +403,11 @@ def main(metro="springfield"):
             f5, l5 = S.iloc[:, :5], S.iloc[:, -5:]
             elig = (S.mean(1) >= 10) | (f5.mean(1) >= 10) | (l5.mean(1) >= 10)
             S = S[elig]
-            res = []
-            for (h, w), v in S.iterrows():
-                v = v.values
-                try:
-                    r = mk.hamed_rao_modification_test(v)
-                    tau, p, slope = r.Tau, r.p, r.slope
-                except Exception:
-                    tau, p, slope = np.nan, 1.0, np.nan
-                res.append((h, w, v.mean(), v[:5].mean(), v[-5:].mean(), (v >= 10).mean(), (v[:5] < 3).all(), (v[-5:] < 3).all(), tau, p, slope))
+            Sv = S.values.astype(float)
+            with ProcessPoolExecutor(WORKERS) as ex:
+                mks = list(ex.map(_mk_job, list(Sv), chunksize=200))
+            res = [(h, w, v.mean(), v[:5].mean(), v[-5:].mean(), (v >= 10).mean(), (v[:5] < 3).all(), (v[-5:] < 3).all(), tau, p, slope)
+                   for (h, w), v, (tau, p, slope) in zip(S.index, Sv, mks)]
             R_ = pd.DataFrame(res, columns=["h_node", "w_node", "mean", "first5", "last5", "share_ge10", "absent_first", "absent_last", "tau", "p", "sen_slope"])
             pv = R_.p.fillna(1).values; o = np.argsort(pv); m = len(pv)
             qv = np.empty(m); qv[o] = np.minimum.accumulate((pv[o] * m / np.arange(1, m + 1))[::-1])[::-1]
